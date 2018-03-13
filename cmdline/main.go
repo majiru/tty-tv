@@ -42,6 +42,9 @@ func main() {
 		fmt.Fprintf(w, "%s", bytes)
 	})
 
+	// serve static files on `/`
+	http.Handle("/", http.FileServer(http.Dir("./static")))
+
 	log.Printf("serving on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
