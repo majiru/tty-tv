@@ -1,73 +1,78 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
-        "os"
-        "os/exec"
-        "flag"
-        "io"
+	"os"
+	"os/exec"
 )
 
 var (
-    flags  = flag.NewFlagSet("", flag.ContinueOnError)
-    stderr = flags.Bool("e", true, "redirect stderr")
-    buffer_length = 1024
+	flags         = flag.NewFlagSet("", flag.ContinueOnError)
+	stderr        = flags.Bool("e", true, "redirect stderr")
+	buffer_length = 1024
 )
 
 func init() {
-    flags.Parse(os.Args[1:])
-    if len(flags.Args()) < 1 {
-        log.Fatal("command missing")
-    }
+	flags.Parse(os.Args[1:])
+	if len(flags.Args()) < 1 {
+		log.Fatal("command missing")
+	}
 }
 
-func screen(){
-    cmd := exec.Command(flags.Args()[0], flags.Args()[1:]...)
+func screen(c chan byte) {
+	cmd := exec.Command(flags.Args()[0], flags.Args()[1:]...)
 
-    //Pretend we're a shell
-    cmd.Stdin = os.Stdin
-    cmd.Stdout = os.Stdout
-    if *stderr {
-        cmd.Stderr = os.Stdout
-    }
+	//Pretend we're a shell
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	if *stderr {
+		cmd.Stderr = os.Stdout
+	}
 
-    //Returns io.ReadCloser stdout pipe
-    stdoutPipe, _ := cmd.StdoutPipe()
+	//Returns io.ReadCloser stdout pipe
+	stdoutPipe, err := cmd.StdoutPipe()
 
-    cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cmd.Run()
+
+	buffer := make([]byte, buffer_length)
+	for {
+		n, _ := stdoutPipe.Read(buffer)
+		data := buffer[0:n]
+
+		for _, item := range data {
+			c <- item
+		}
+
+		for i := 0; i < n; i++ {
+			buffer[i] = 0
+		}
+	}
+
 }
 
-
-func bufferShellOutput(w http.ResponseWriter, reader io.ReadCloser){
-    buffer := make([]byte, buffer_length)
-    for {
-
-        n, err := reader.Read(buffer)
-        if err != nil {
-            reader.Close();
-            break
-        }
-
-        data := buffer[0:n]
-        w.Write(data)
-        if f, ok := w.(http.Flusher); ok {
-            f.Flush()
-        }
-
-        for i := 0; i < n; i++{
-            buffer[i] = 0
-        }
-
-    }
-
-
+func bufferShellOutput(w http.ResponseWriter, c chan byte) {
+	for {
+		select {
+		case data := <-c:
+			w.Write(tmp)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}
 }
 
 func main() {
-
+	ch := make(chan byte, buffer_length)
+	screen(ch)
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
-            fmt.Fprintf(w, "%s", "Nothing here")
+		bufferShellOutput(w, ch)
 	})
 
 	// serve static files on `/`
