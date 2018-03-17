@@ -9,9 +9,10 @@ import (
 )
 
 var (
-	flags        = flag.NewFlagSet("", flag.ContinueOnError)
-	stderr       = flags.Bool("e", true, "redirect stderr")
-	bufferLength = 1024 //Buffer size for stdout to websocket
+	flags                = flag.NewFlagSet("", flag.ContinueOnError)
+	stderr               = flags.Bool("e", true, "redirect stderr")
+	maxReadBufferLength  = 1024 //max amount of characters to take in per poll
+	minWriteBufferLength = 20   //min amount of characters per each update of the web socket
 )
 
 func init() {
@@ -33,7 +34,7 @@ func screen(c chan byte) {
 	go cmd.Run()
 
 	//Read stdout and send it to the web socket
-	buffer := make([]byte, bufferLength)
+	buffer := make([]byte, maxReadBufferLength)
 	for {
 		n, _ := stdoutPipe.Read(buffer)
 		data := buffer[0:n]
@@ -53,13 +54,13 @@ func screen(c chan byte) {
 
 func bufferShellOutput(w http.ResponseWriter, c chan byte) {
 	i := 0 //Lazy way of buffering
-	buffer := make([]byte, bufferLength)
+	buffer := make([]byte, minWriteBufferLength)
 	for {
 		select {
 		case data := <-c:
 			buffer[i] = data
 			i++
-			if i == bufferLength {
+			if i == minWriteBufferLength {
 				w.Write(buffer)
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
@@ -71,7 +72,7 @@ func bufferShellOutput(w http.ResponseWriter, c chan byte) {
 }
 
 func main() {
-	ch := make(chan byte, bufferLength)
+	ch := make(chan byte, maxReadBufferLength)
 
 	go screen(ch)
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
