@@ -60,7 +60,7 @@ func bufferShellOutput(w http.ResponseWriter, c chan byte) {
 		case data := <-c:
 			buffer[i] = data
 			i++
-			if i == minWriteBufferLength {
+			if i == minWriteBufferLength-1 {
 				w.Write(buffer)
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
