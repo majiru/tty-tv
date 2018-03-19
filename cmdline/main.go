@@ -2,17 +2,22 @@ package main
 
 import (
 	"flag"
+	"github.com/kr/pty"
+	"golang.org/x/crypto/ssh/terminal"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 )
 
 var (
 	flags                = flag.NewFlagSet("", flag.ContinueOnError)
 	stderr               = flags.Bool("e", true, "redirect stderr")
-	maxReadBufferLength  = 1024 //max amount of characters to take in per poll
-	minWriteBufferLength = 20   //min amount of characters per each update of the web socket
+	maxReadBufferLength  = 64 * 1024 //max amount of characters to take in per poll
+	minWriteBufferLength = 20        //min amount of characters per each update of the web socket
 )
 
 func init() {
@@ -20,23 +25,46 @@ func init() {
 	if len(flags.Args()) < 1 {
 		log.Fatal("command missing")
 	}
+
+	//Try and set the buffer to two times the size of one whole screen of text
+	width, height, err := terminal.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		maxReadBufferLength = width * height * 2
+	}
 }
 
 func screen(c chan byte) {
 	cmd := exec.Command(flags.Args()[0], flags.Args()[1:]...)
 
-	//Pretend we're a shell
-	cmd.Stdin = os.Stdin
-	stdoutPipe, err := cmd.StdoutPipe()
+	//Pass the command into a new tty
+	ptmx, _ := pty.Start(cmd)
+	defer func() { _ = ptmx.Close() }()
+
+	//Grab the parent terminal size
+	sysch := make(chan os.Signal, syscall.SIGWINCH)
+	signal.Notify(sysch, syscall.SIGWINCH)
+	go func() {
+		for range sysch {
+			if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
+				log.Printf("Could not grab the size from the parent: %s", err)
+			}
+		}
+	}()
+	sysch <- syscall.SIGWINCH
+
+	//Turn the input raw
+	oldState, err := terminal.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		log.Fatal(err)
 	}
-	go cmd.Run()
+
+	defer func() { _ = terminal.Restore(int(os.Stdin.Fd()), oldState) }()
+	go func() { _, _ = io.Copy(ptmx, os.Stdin) }()
 
 	//Read stdout and send it to the web socket
 	buffer := make([]byte, maxReadBufferLength)
 	for {
-		n, _ := stdoutPipe.Read(buffer)
+		n, _ := ptmx.Read(buffer)
 		data := buffer[0:n]
 		os.Stdout.Write(data) //Let the user see what's going on
 
