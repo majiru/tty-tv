@@ -2,8 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/kr/pty"
-	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +9,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+
+	"github.com/kr/pty"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 var (
