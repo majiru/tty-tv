@@ -43,7 +43,6 @@ func screen(c chan byte) {
 
 	//Pass the command into a new tty
 	ptmx, _ := pty.Start(cmd)
-	defer func() { _ = ptmx.Close() }()
 
 	//Grab the parent terminal size
 	sysch := make(chan os.Signal, syscall.SIGWINCH)
@@ -63,13 +62,17 @@ func screen(c chan byte) {
 		log.Fatal(err)
 	}
 
-	defer func() { _ = terminal.Restore(int(os.Stdin.Fd()), oldState) }()
 	go func() { _, _ = io.Copy(ptmx, os.Stdin) }()
 
 	//Read stdout and send it to the web socket
 	buffer := make([]byte, maxReadBufferLength)
 	for {
-		n, _ := ptmx.Read(buffer)
+		n, err := ptmx.Read(buffer)
+		if err != nil {
+			_ = terminal.Restore(int(os.Stdin.Fd()), oldState)
+			ptmx.Close()
+			os.Exit(0)
+		}
 		data := buffer[0:n]
 		os.Stdout.Write(data) //Let the user see what's going on
 
