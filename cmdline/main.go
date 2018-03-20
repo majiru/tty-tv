@@ -19,12 +19,16 @@ var (
 	stderr               = flags.Bool("e", true, "redirect stderr")
 	maxReadBufferLength  = 64 * 1024 //max amount of characters to take in per poll
 	minWriteBufferLength = 20        //min amount of characters per each update of the web socket
+	command              []string
 )
 
 func init() {
 	flags.Parse(os.Args[1:])
 	if len(flags.Args()) < 1 {
-		log.Fatal("command missing")
+		log.Print("Command not found, defaulting to os shell")
+		command = append(command, os.Getenv("SHELL"), "-i")
+	} else {
+		command = append(command, flags.Args()[0:]...)
 	}
 
 	//Try and set the buffer to two times the size of one whole screen of text
@@ -35,7 +39,7 @@ func init() {
 }
 
 func screen(c chan byte) {
-	cmd := exec.Command(flags.Args()[0], flags.Args()[1:]...)
+	cmd := exec.Command(command[0], command[1:]...)
 
 	//Pass the command into a new tty
 	ptmx, _ := pty.Start(cmd)
