@@ -77,10 +77,6 @@ func screen(c chan []byte) {
 		os.Stdout.Write(data) //Let the user see what's going on
 		c <- data
 
-		//Reset the buffer
-		for i := 0; i < n; i++ {
-			buffer[i] = 0
-		}
 	}
 
 }
@@ -97,7 +93,7 @@ func bufferShellOutput(w http.ResponseWriter, c chan []byte) {
 }
 
 func main() {
-	ch := make(chan []byte)
+	ch := make(chan []byte, maxReadBufferLength)
 	upgrader := websocket.Upgrader{}
 
 	const runWebSocketMode = false
