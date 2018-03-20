@@ -81,7 +81,7 @@ func screen(c chan []byte) {
 
 }
 
-func bufferShellOutput(w http.ResponseWriter, c chan []byte) {
+func writeToWebRaw(w http.ResponseWriter, c chan []byte) {
 	for {
 		data := <-c
 		w.Write(data)
@@ -92,39 +92,30 @@ func bufferShellOutput(w http.ResponseWriter, c chan []byte) {
 
 }
 
+func writeToWebSocket(w http.ResponseWriter, r *http.Request, c chan []byte) {
+	upgrader := websocket.Upgrader{}
+	u, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer u.Close()
+	for {
+		err = u.WriteMessage(websocket.BinaryMessage, <-c)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
 func main() {
 	ch := make(chan []byte, maxReadBufferLength)
-	upgrader := websocket.Upgrader{}
-
-	const runWebSocketMode = false
 
 	go screen(ch)
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
-		if runWebSocketMode {
-			// Websocket mode
-			c, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				log.Print("upgrade:", err)
-				return
-			}
-			defer c.Close()
-
-			for {
-				mt, msg, err := c.ReadMessage()
-				if err != nil {
-					log.Print("read:", err)
-					break
-				}
-				log.Printf("recv: %s", msg)
-				err = c.WriteMessage(mt, msg)
-				if err != nil {
-					log.Print("write:", err)
-					break
-				}
-			}
-			log.Print("connection ended")
+		if _, ok := r.Header["Upgrade"]; ok {
+			writeToWebSocket(w, r, ch)
 		} else {
-			bufferShellOutput(w, ch)
+			writeToWebRaw(w, ch)
 		}
 	})
 
