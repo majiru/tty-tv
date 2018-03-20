@@ -16,11 +16,10 @@ import (
 )
 
 var (
-	flags                = flag.NewFlagSet("", flag.ContinueOnError)
-	stderr               = flags.Bool("e", true, "redirect stderr")
-	maxReadBufferLength  = 64 * 1024 //max amount of characters to take in per poll
-	minWriteBufferLength = 20        //min amount of characters per each update of the web socket
-	command              []string
+	flags               = flag.NewFlagSet("", flag.ContinueOnError)
+	stderr              = flags.Bool("e", true, "redirect stderr")
+	maxReadBufferLength = 64 * 1024 //max amount of characters to take in per poll
+	command             []string
 )
 
 func init() {
@@ -39,7 +38,7 @@ func init() {
 	}
 }
 
-func screen(c chan byte) {
+func screen(c chan []byte) {
 	cmd := exec.Command(command[0], command[1:]...)
 
 	//Pass the command into a new tty
@@ -76,10 +75,7 @@ func screen(c chan byte) {
 		}
 		data := buffer[0:n]
 		os.Stdout.Write(data) //Let the user see what's going on
-
-		for _, item := range data {
-			c <- item
-		}
+		c <- data
 
 		//Reset the buffer
 		for i := 0; i < n; i++ {
@@ -89,27 +85,19 @@ func screen(c chan byte) {
 
 }
 
-func bufferShellOutput(w http.ResponseWriter, c chan byte) {
-	i := 0 //Lazy way of buffering
-	buffer := make([]byte, minWriteBufferLength)
+func bufferShellOutput(w http.ResponseWriter, c chan []byte) {
 	for {
-		select {
-		case data := <-c:
-			buffer[i] = data
-			i++
-			if i == minWriteBufferLength-1 {
-				w.Write(buffer)
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
-				i = 0
-			}
+		data := <-c
+		w.Write(data)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
 		}
 	}
+
 }
 
 func main() {
-	ch := make(chan byte, maxReadBufferLength)
+	ch := make(chan []byte)
 	upgrader := websocket.Upgrader{}
 
 	const runWebSocketMode = false
