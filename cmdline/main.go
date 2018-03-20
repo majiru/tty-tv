@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/gorilla/websocket"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
 )
@@ -109,10 +110,38 @@ func bufferShellOutput(w http.ResponseWriter, c chan byte) {
 
 func main() {
 	ch := make(chan byte, maxReadBufferLength)
+	upgrader := websocket.Upgrader{}
+
+	const runWebSocketMode = false
 
 	go screen(ch)
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
-		bufferShellOutput(w, ch)
+		if runWebSocketMode {
+			// Websocket mode
+			c, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				log.Print("upgrade:", err)
+				return
+			}
+			defer c.Close()
+
+			for {
+				mt, msg, err := c.ReadMessage()
+				if err != nil {
+					log.Print("read:", err)
+					break
+				}
+				log.Printf("recv: %s", msg)
+				err = c.WriteMessage(mt, msg)
+				if err != nil {
+					log.Print("write:", err)
+					break
+				}
+			}
+			log.Print("connection ended")
+		} else {
+			bufferShellOutput(w, ch)
+		}
 	})
 
 	// serve static files on `/`
