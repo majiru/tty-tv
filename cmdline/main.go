@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/gordonklaus/portaudio"
 	"github.com/gorilla/websocket"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
@@ -107,16 +108,47 @@ func writeToWebSocket(w http.ResponseWriter, r *http.Request, c chan []byte) {
 	}
 }
 
-func main() {
-	ch := make(chan []byte, maxReadBufferLength)
+func captureAudio(c chan []byte) {
+	portaudio.Initialize()
+	defer portaudio.Terminate()
 
-	go screen(ch)
+	inputBuffer := make([]byte, 256)
+	stream, err := portaudio.OpenDefaultStream(1, 0, 44100, len(inputBuffer), inputBuffer)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer stream.Close()
+
+	for {
+		stream.Start()
+		stream.Read()
+		c <- inputBuffer
+	}
+}
+
+func checkForSocket(w http.ResponseWriter, r *http.Request, c chan []byte) {
+	if _, ok := r.Header["Upgrade"]; ok {
+		writeToWebSocket(w, r, c)
+	} else {
+		writeToWebRaw(w, c)
+	}
+
+}
+
+func main() {
+	textChan := make(chan []byte, maxReadBufferLength)
+	audioChan := make(chan []byte, 64)
+	go screen(textChan)
+	go captureAudio(audioChan)
+
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := r.Header["Upgrade"]; ok {
-			writeToWebSocket(w, r, ch)
-		} else {
-			writeToWebRaw(w, ch)
-		}
+		checkForSocket(w, r, textChan)
+
+	})
+
+	http.HandleFunc("/api/sound", func(w http.ResponseWriter, r *http.Request) {
+		checkForSocket(w, r, audioChan)
 	})
 
 	// serve static files on `/`
