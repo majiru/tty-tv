@@ -1,12 +1,7 @@
 module Main exposing (..)
 
 import Html exposing (..)
-import Http
 import WebSocket
-
-
---import Json.Decode exposing (..)
---import Json.Decode.Pipeline exposing (..)
 
 
 type alias Model =
@@ -27,12 +22,16 @@ update : Msg -> Model -> ( Model, Cmd msg )
 update msg model =
     case msg of
         NewMessageFromServer s ->
-            ( { model | rows = model.rows ++ [ s ] }, Cmd.none )
+            let
+                _ =
+                    Debug.log s
+            in
+                ( { model | rows = model.rows ++ [ s ] }, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    WebSocket.listen "wss://localhost:8080/api/server" NewMessageFromServer
+    WebSocket.listen "/api/screen" NewMessageFromServer
 
 
 view : Model -> Html msg
@@ -45,6 +44,7 @@ view model =
         div [] rowsAsHtml
 
 
+main : Program Never Model Msg
 main =
     Html.program
         { init = init
