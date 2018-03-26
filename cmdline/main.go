@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -21,13 +22,26 @@ var (
 	stderr              = flags.Bool("e", true, "redirect stderr")
 	maxReadBufferLength = 64 * 1024 //max amount of characters to take in per poll
 	command             []string
+	logFile             io.WriteCloser
 )
 
 func init() {
+	// Set up logging output.
+	// We include O_SYNC so that the logs are always written synchronously;
+	// if the program crashes, no logging will be pending write.
+	const logFileFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND | os.O_SYNC
+	var err error
+	logFile, err = os.OpenFile("tty-tv-debug.log", logFileFlags, 0755)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.SetOutput(logFile)
+
 	flags.Parse(os.Args[1:])
 	if len(flags.Args()) < 1 {
-		log.Print("Command not found, defaulting to os shell")
-		command = append(command, os.Getenv("SHELL"), "-i")
+		shell := os.Getenv("SHELL")
+		log.Printf("Command not found, defaulting to os shell (%s)", shell)
+		command = append(command, shell, "-i")
 	} else {
 		command = append(command, flags.Args()[0:]...)
 	}
@@ -101,7 +115,9 @@ func writeToWebSocket(w http.ResponseWriter, r *http.Request, c chan []byte) {
 	}
 	defer u.Close()
 	for {
-		err = u.WriteMessage(websocket.BinaryMessage, <-c)
+		msg := <-c
+		log.Printf("writing websocket message to client %v: %q", r.Host, msg)
+		err = u.WriteMessage(websocket.BinaryMessage, msg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -129,14 +145,18 @@ func captureAudio(c chan []byte) {
 
 func checkForSocket(w http.ResponseWriter, r *http.Request, c chan []byte) {
 	if _, ok := r.Header["Upgrade"]; ok {
+		log.Printf("websocket connection from %v", r.Host)
 		writeToWebSocket(w, r, c)
 	} else {
+		log.Printf("raw web connection from %v", r.Host)
 		writeToWebRaw(w, c)
 	}
 
 }
 
 func main() {
+	defer logFile.Close()
+
 	textChan := make(chan []byte, maxReadBufferLength)
 	audioChan := make(chan []byte, 64)
 	go screen(textChan)
@@ -144,7 +164,6 @@ func main() {
 
 	http.HandleFunc("/api/screen", func(w http.ResponseWriter, r *http.Request) {
 		checkForSocket(w, r, textChan)
-
 	})
 
 	http.HandleFunc("/api/sound", func(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +173,6 @@ func main() {
 	// serve static files on `/`
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 
-	log.Printf("serving on http://localhost:8080")
+	fmt.Println("serving on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
