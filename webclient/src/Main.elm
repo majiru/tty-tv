@@ -38,11 +38,11 @@ subscriptions model =
 view : Model -> Html msg
 view model =
     let
-        viewRow : String -> Html msg
-        viewRow s =
-            text s
+        rowsAsHtml : List (Html msg)
+        rowsAsHtml =
+            List.map (\s -> div [] [ text s ]) model.rows
     in
-        div [] (map viewRow model.rows)
+        div [] rowsAsHtml
 
 
 main =
